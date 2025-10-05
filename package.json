@@ -1,0 +1,27 @@
+{
+  "name": "stylesphere-fullstack",
+  "version": "1.0.0",
+  "description": "StyleSphere - Full Stack Fashion Platform",
+  "main": "index.js",
+  "scripts": {
+    "dev": "concurrently \"npm run backend:dev\" \"npm run frontend:dev\"",
+    "backend:dev": "cd backend && npm run dev",
+    "frontend:dev": "cd stylesphere-frontend && npm start",
+    "backend:install": "cd backend && npm install",
+    "frontend:install": "cd stylesphere-frontend && npm install",
+    "install:all": "npm run backend:install && npm run frontend:install",
+    "build": "cd stylesphere-frontend && npm run build",
+    "start": "cd backend && npm start"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.1"
+  },
+  "keywords": [
+    "fashion",
+    "react",
+    "nodejs",
+    "mongodb"
+  ],
+  "author": "StyleSphere Team",
+  "license": "MIT"
+}

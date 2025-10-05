@@ -1,0 +1,4 @@
+# Python dependencies for StyleSphere AI Styling Engine
+Pillow==10.0.0
+scikit-learn==1.3.0
+numpy==1.24.0
