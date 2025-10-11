@@ -160,6 +160,35 @@ const productSchema = new mongoose.Schema({
             type: String,
             trim: true
         }
+    },
+    vendorPrices: [{
+        vendor: {
+            type: String,
+            required: true,
+            trim: true
+        },
+        price: {
+            type: Number,
+            required: true,
+            min: 0
+        },
+        url: {
+            type: String,
+            trim: true
+        },
+        inStock: {
+            type: Boolean,
+            default: true
+        },
+        lastUpdated: {
+            type: Date,
+            default: Date.now
+        }
+    }],
+    comparisonKey: {
+        type: String,
+        trim: true,
+        lowercase: true
     }
 }, {
     timestamps: true,
@@ -189,6 +218,7 @@ productSchema.index({ rating: -1 });
 productSchema.index({ featured: -1, createdAt: -1 });
 productSchema.index({ tags: 1 });
 productSchema.index({ isActive: 1, inStock: 1 });
+productSchema.index({ comparisonKey: 1, brand: 1 });
 
 productSchema.pre('save', function (next) {
     if (!this.sku) {

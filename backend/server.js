@@ -9,6 +9,7 @@ import connectDB from './config/db.js';
 import authRoutes from './routes/authRoutes.js';
 import productRoutes from './routes/productRoutes.js';
 import wishlistRoutes from './routes/wishlistRoutes.js';
+import priceComparisonRoutes from './routes/priceComparisonRoutes.js';
 import trackerRoutes from './routes/trackerRoutes.js';
 import advisorRoutes from './routes/advisorRoutes.js';
 import { errorHandler, notFound } from './middleware/errorMiddleware.js';
@@ -90,6 +91,7 @@ app.use(express.json());
 app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/wishlist', wishlistRoutes);
+app.use('/api/price-comparison', priceComparisonRoutes);
 app.use('/api/tracker', trackerRoutes);
 app.use('/api/advisor', advisorRoutes);
 

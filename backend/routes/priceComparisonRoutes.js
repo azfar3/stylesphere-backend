@@ -1,10 +1,9 @@
-const express = require('express');
+import express from 'express';
+import { getComparisonData, getPriceTrends } from '../controllers/priceComparisonController.js';
+
 const router = express.Router();
-const priceComparisonController = require('../controllers/priceComparisonController');
-const auth = require('../middleware/auth');
 
-router.get('/search', priceComparisonController.searchProductsForComparison);
-router.get('/:productId', priceComparisonController.getComparisonProducts);
-router.get('/:productId/price-history', priceComparisonController.getPriceHistory);
+router.get('/', getComparisonData);
+router.get('/trends/:productId', getPriceTrends);
 
-module.exports = router;
+export default router;
