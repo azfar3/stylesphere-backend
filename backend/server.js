@@ -12,6 +12,7 @@ import wishlistRoutes from './routes/wishlistRoutes.js';
 import priceComparisonRoutes from './routes/priceComparisonRoutes.js';
 import trackerRoutes from './routes/trackerRoutes.js';
 import advisorRoutes from './routes/advisorRoutes.js';
+import dashboardRoutes from './routes/dashboardRoutes.js';
 import { errorHandler, notFound } from './middleware/errorMiddleware.js';
 
 dotenv.config();
@@ -94,6 +95,7 @@ app.use('/api/wishlist', wishlistRoutes);
 app.use('/api/price-comparison', priceComparisonRoutes);
 app.use('/api/tracker', trackerRoutes);
 app.use('/api/advisor', advisorRoutes);
+app.use('/api/v1', dashboardRoutes);
 
 app.use(notFound);
 app.use(errorHandler);
