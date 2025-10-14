@@ -22,6 +22,7 @@ connectDB();
 const app = express();
 const isDevelopment = process.env.NODE_ENV !== 'production';
 
+// Security & Core Middleware First
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
@@ -45,14 +46,7 @@ const corsOptions = {
 };
 app.use(cors(corsOptions));
 
-app.use(compression());
-
-if (isDevelopment) {
-  app.use(morgan('dev'));
-} else {
-  app.use(morgan('combined'));
-}
-
+// Rate Limiting
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: isDevelopment ? 1000 : 100,
@@ -65,30 +59,43 @@ const generalLimiter = rateLimit({
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: isDevelopment ? 100 : 10,
+  max: isDevelopment ? 100 : 5,
   message: {
     error: 'Too many authentication attempts, please try again later.',
   },
   standardHeaders: true,
   legacyHeaders: false,
+  skipSuccessfulRequests: true,
 });
 
+// Apply general limiter to all routes
 app.use(generalLimiter);
 
+// Body Parsing Middleware
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+// Compression & Logging
+app.use(compression());
+
+if (isDevelopment) {
+  app.use(morgan('dev'));
+} else {
+  app.use(morgan('combined'));
+}
+
+// Health Check
 app.get('/health', (req, res) => {
   res.status(200).json({
     status: 'OK',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
-    environment: process.env.NODE_ENV || 'development'
+    environment: process.env.NODE_ENV || 'development',
+    memory: process.memoryUsage(),
   });
 });
 
-app.use(express.json());
-
+// API Routes with Specific Rate Limits
 app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/wishlist', wishlistRoutes);
@@ -97,18 +104,41 @@ app.use('/api/tracker', trackerRoutes);
 app.use('/api/advisor', advisorRoutes);
 app.use('/api/v1', dashboardRoutes);
 
+// Error Handling
 app.use(notFound);
 app.use(errorHandler);
 
 const PORT = process.env.PORT || 5000;
 
+// Server Setup with Graceful Shutdown
+const server = app.listen(PORT, () => {
+  console.log(`[INFO] Server running on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
+  console.log(`[INFO] Health check available at: http://localhost:${PORT}/health`);
+});
+
+// Graceful shutdown handlers
 process.on('SIGTERM', () => {
   console.log('SIGTERM signal received: closing HTTP server');
   server.close(() => {
     console.log('HTTP server closed');
+    process.exit(0);
   });
 });
 
-const server = app.listen(PORT, () => {
-  console.log(`[INFO] Server running on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
+process.on('SIGINT', () => {
+  console.log('SIGINT signal received: closing HTTP server');
+  server.close(() => {
+    console.log('HTTP server closed');
+    process.exit(0);
+  });
 });
+
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (err, promise) => {
+  console.log('Unhandled Rejection at:', promise, 'reason:', err);
+  server.close(() => {
+    process.exit(1);
+  });
+});
+
+export default app;

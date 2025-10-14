@@ -3,14 +3,11 @@ import User from '../models/User.js';
 
 export const protect = async (req, res, next) => {
   try {
-    let token = req.headers.authorization.split(' ')[1];
+    let token;
 
-    console.log("token: ",token);
-    
-
-    // if (req.headers.authorization?.startsWith('Bearer')) {
-    //   token = req.headers.authorization.split(' ')[1];
-    // }
+    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+      token = req.headers.authorization.split(' ')[1];
+    }
 
     if (!token) {
       return res.status(401).json({
@@ -21,7 +18,6 @@ export const protect = async (req, res, next) => {
 
     try {
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
       const user = await User.findById(decoded.id).lean();
 
       if (!user) {
