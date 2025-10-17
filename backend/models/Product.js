@@ -141,8 +141,8 @@ productSchema.virtual('discount').get(function () {
     return Math.min(discount, 100);
 });
 
-productSchema.virtual('image').get(function () {    
-    return this.image_url || this.local_image_path;
+productSchema.virtual('image').get(function () {
+    return `http://localhost:5000/images/${this.local_image_path.replace(/\\/g, '/')}`;
 });
 
 productSchema.virtual('tags').get(function () {

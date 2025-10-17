@@ -15,9 +15,15 @@ import advisorRoutes from './routes/advisorRoutes.js';
 import dashboardRoutes from './routes/dashboardRoutes.js';
 import { errorHandler, notFound } from './middleware/errorMiddleware.js';
 
+import path from 'path';
+import { fileURLToPath } from 'url';
+
 dotenv.config();
 
 connectDB();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const isDevelopment = process.env.NODE_ENV !== 'production';
@@ -103,6 +109,9 @@ app.use('/api/price-comparison', priceComparisonRoutes);
 app.use('/api/tracker', trackerRoutes);
 app.use('/api/advisor', advisorRoutes);
 app.use('/api/v1', dashboardRoutes);
+
+// Serve the images folder publicly
+app.use('/images', express.static(path.join(__dirname, 'data', 'images')));
 
 // Error Handling
 app.use(notFound);
