@@ -2,22 +2,47 @@ import Product from '../models/Product.js';
 
 export const getProducts = async (req, res) => {
     try {
-        const { page = 1, limit = 10, category, search, sortBy = 'name', sortOrder = 'asc' } = req.query;
+        const {
+            page = 1,
+            limit = 12,
+            category, search,
+            brand, minPrice,
+            maxPrice,
+            sortBy = 'title',
+            sortOrder = 'asc'
+        } = req.query;
 
-        let filter = {};
+        let filter = { availability: { $ne: false } };
         if (category) {
-            filter.tags = { $in: [category] };
+            filter.category = { $regex: category, $options: 'i' };
+        }
+        if (brand) {
+            filter.brand = { $regex: brand, $options: 'i' };
+        }
+        if (minPrice || maxPrice) {
+            filter.price_clean = {};
+            if (minPrice) filter.price_clean.$gte = Number(minPrice);
+            if (maxPrice) filter.price_clean.$lte = Number(maxPrice);
         }
         if (search) {
             filter.$or = [
-                { name: { $regex: search, $options: 'i' } },
+                { title: { $regex: search, $options: 'i' } },
                 { brand: { $regex: search, $options: 'i' } },
-                { tags: { $in: [new RegExp(search, 'i')] } }
+                { style_type: { $regex: search, $options: 'i' } },
+                { product_type: { $regex: search, $options: 'i' } }
             ];
         }
 
+        const sortFieldMap = {
+            'name': 'title',
+            'price': 'price_clean',
+            'rating': 'rating',
+            'createdAt': 'createdAt'
+        };
+
         const sort = {};
-        sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
+        const actualSortField = sortFieldMap[sortBy] || sortBy;
+        sort[actualSortField] = sortOrder === 'desc' ? -1 : 1;
 
         const skip = (parseInt(page) - 1) * parseInt(limit);
 
@@ -25,7 +50,6 @@ export const getProducts = async (req, res) => {
             .sort(sort)
             .skip(skip)
             .limit(parseInt(limit))
-            .lean();
 
         const total = await Product.countDocuments(filter);
         const totalPages = Math.ceil(total / parseInt(limit));
@@ -63,7 +87,10 @@ export const getProductById = async (req, res) => {
             });
         }
 
-        const product = await Product.findById(id).lean();
+        let product = await Product.findOne({ product_id: id });
+        if (!product) {
+            product = await Product.findById(id);
+        }
 
         if (!product) {
             return res.status(404).json({
@@ -90,25 +117,26 @@ export const searchProducts = async (req, res) => {
     try {
         const { q, category, minPrice, maxPrice, brand, tags } = req.query;
 
-        if (!q && !category && !brand && !tags) {
+        if (!q && !category && !brand && !tags && !minPrice && !maxPrice) {
             return res.status(400).json({
                 success: false,
                 message: 'Search query, category, brand, or tags required'
             });
         }
 
-        let filter = {};
+        let filter = { availability: { $ne: false } };
 
         if (q) {
             filter.$or = [
-                { name: { $regex: q, $options: 'i' } },
+                { title: { $regex: q, $options: 'i' } },
                 { brand: { $regex: q, $options: 'i' } },
-                { tags: { $in: [new RegExp(q, 'i')] } }
+                { style_type: { $regex: q, $options: 'i' } },
+                { product_type: { $regex: q, $options: 'i' } }
             ];
         }
 
         if (category) {
-            filter.tags = { ...filter.tags, $in: [category] };
+            filter.category = { $regex: category, $options: 'i' };
         }
 
         if (brand) {
@@ -116,20 +144,14 @@ export const searchProducts = async (req, res) => {
         }
 
         if (minPrice || maxPrice) {
-            filter.price = {};
-            if (minPrice) filter.price.$gte = parseFloat(minPrice);
-            if (maxPrice) filter.price.$lte = parseFloat(maxPrice);
-        }
-
-        if (tags) {
-            const tagArray = tags.split(',').map(tag => tag.trim());
-            filter.tags = { ...filter.tags, $in: tagArray };
+            filter.price_clean = {};
+            if (minPrice) filter.price_clean.$gte = parseFloat(minPrice);
+            if (maxPrice) filter.price_clean.$lte = parseFloat(maxPrice);
         }
 
         const products = await Product.find(filter)
-            .sort({ name: 1 })
+            .sort({ title: 1 })
             .limit(50)
-            .lean();
 
         res.status(200).json({
             success: true,
@@ -151,13 +173,11 @@ export const getFeaturedProducts = async (req, res) => {
         const limit = parseInt(req.query.limit) || 8;
 
         const products = await Product.find({
-            featured: true,
-            isActive: true,
-            inStock: true
+            availability: true,
+            is_discounted: true
         })
-            .select('name brand price originalPrice image category rating reviewCount discount')
-            .sort({ createdAt: -1 })
-            .limit(limit);
+            .sort({ discount_clean: -1, createdAt: -1 })
+            .limit(limit)
 
         res.status(200).json({
             success: true,
@@ -173,6 +193,21 @@ export const getFeaturedProducts = async (req, res) => {
     }
 };
 
+export const getTopDiscounts = async (req, res) => {
+    try {
+        const products = await Product.find({
+            discount_clean: { $gt: 0 },
+            availability: true
+        })
+            .sort({ discount_clean: -1 })
+            .limit(10);
+
+        res.json({ success: true, data: products });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
 export const createProduct = async (req, res) => {
     try {
         const product = new Product(req.body);
@@ -180,17 +215,5 @@ export const createProduct = async (req, res) => {
         res.status(201).json(savedProduct);
     } catch (error) {
         res.status(400).json({ message: error.message });
-    }
-};
-
-export const getTopDiscounts = async (req, res) => {
-    try {
-        const products = await Product.find({ discount: { $gt: 0 } })
-            .sort({ discount: -1 })
-            .limit(10);
-
-        res.json({ success: true, data: products });
-    } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
     }
 };
