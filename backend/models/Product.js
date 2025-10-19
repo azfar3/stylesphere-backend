@@ -142,7 +142,8 @@ productSchema.virtual('discount').get(function () {
 });
 
 productSchema.virtual('image').get(function () {
-    return `http://localhost:5000/images/${this.local_image_path.replace(/\\/g, '/')}`;
+    // `http://localhost:5000/images/${this.local_image_path.replace(/\\/g, '/')}`
+    return this.image_url;
 });
 
 productSchema.virtual('tags').get(function () {

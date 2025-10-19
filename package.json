@@ -23,5 +23,8 @@
     "mongodb"
   ],
   "author": "StyleSphere Team",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "python-shell": "^5.0.0"
+  }
 }

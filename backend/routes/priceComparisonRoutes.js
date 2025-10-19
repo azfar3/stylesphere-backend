@@ -1,14 +1,15 @@
 import express from 'express';
 import {
-    getComparisonData,
-    getPriceTrends,
-    getProductTypes,
+    compareMultipleProducts,
+    getComparisonHistory,
+    saveComparison
 } from '../controllers/priceComparisonController.js';
+import { protect } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
-router.get('/', getComparisonData);
-router.get('/trends/:productId', getPriceTrends);
-router.get('/product-types', getProductTypes);
+router.post('/compare-multiple', protect, compareMultipleProducts);
+router.get('/history', protect, getComparisonHistory);
+router.post('/save', protect, saveComparison);
 
 export default router;
