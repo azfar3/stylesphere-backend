@@ -1,10 +1,15 @@
-const express = require('express');
+import express from 'express';
+import {
+    compareMultipleProducts,
+    getComparisonHistory,
+    saveComparison
+} from '../controllers/priceComparisonController.js';
+import { protect } from '../middleware/authMiddleware.js';
+
 const router = express.Router();
-const priceComparisonController = require('../controllers/priceComparisonController');
-const auth = require('../middleware/auth');
 
-router.get('/search', priceComparisonController.searchProductsForComparison);
-router.get('/:productId', priceComparisonController.getComparisonProducts);
-router.get('/:productId/price-history', priceComparisonController.getPriceHistory);
+router.post('/compare-multiple', protect, compareMultipleProducts);
+router.get('/history', protect, getComparisonHistory);
+router.post('/save', protect, saveComparison);
 
-module.exports = router;
+export default router;
