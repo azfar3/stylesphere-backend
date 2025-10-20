@@ -10,7 +10,7 @@ const __dirname = path.dirname(__filename);
 const executePythonService = (userData, imagePath = null) => {
   return new Promise((resolve, reject) => {
     const pythonScript = path.join(__dirname, '../utils/styling_engine.py');
-    
+
     // Check if Python script exists
     if (!fs.existsSync(pythonScript)) {
       return reject(new Error('Styling service not found'));
@@ -258,7 +258,7 @@ export const uploadImageForAnalysis = async (req, res, next) => {
 
     // Execute Python service with image
     const result = await executePythonService(userData, imagePath);
-    
+
     // Clean up uploaded file
     fs.unlink(imagePath, (err) => {
       if (err) console.error('Failed to delete uploaded file:', err);
@@ -274,14 +274,14 @@ export const uploadImageForAnalysis = async (req, res, next) => {
     });
   } catch (error) {
     console.error('Image analysis error:', error);
-    
+
     // Clean up file on error
     if (req.file) {
       fs.unlink(req.file.path, (err) => {
         if (err) console.error('Failed to delete uploaded file:', err);
       });
     }
-    
+
     next(error);
   }
 };

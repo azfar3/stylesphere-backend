@@ -1,124 +1,127 @@
-const Product = require('../models/Product');
-const PriceHistory = require('../models/PriceHistory');
+import Product from '../models/Product.js';
+import Comparison from '../models/Comparison.js';
 
-const priceComparisonController = {
-    // Get similar products for comparison
-    getComparisonProducts: async (req, res) => {
-        try {
-            const { productId } = req.params;
-            const { category, brand, priceRange, limit = 10 } = req.query;
+export const compareMultipleProducts = async (req, res) => {
+    try {
+        const { products: productIds } = req.body;
 
-            // Get main product details
-            const mainProduct = await Product.findById(productId);
-            if (!mainProduct) {
-                return res.status(404).json({
-                    success: false,
-                    message: 'Product not found'
-                });
-            }
-
-            // Build query for similar products
-            const query = {
-                _id: { $ne: productId }, // Exclude the main product
-                category: mainProduct.category
-            };
-
-            // Add optional filters
-            if (brand) query.brand = brand;
-            if (priceRange) {
-                const [minPrice, maxPrice] = priceRange.split('-').map(Number);
-                query.price = { $gte: minPrice, $lte: maxPrice };
-            }
-
-            // Get similar products
-            const similarProducts = await Product.find(query)
-                .limit(parseInt(limit))
-                .sort({ price: 1 }); // Sort by price ascending
-
-            res.json({
-                success: true,
-                data: {
-                    mainProduct,
-                    similarProducts,
-                    comparisonCount: similarProducts.length
-                }
-            });
-        } catch (error) {
-            res.status(500).json({
+        if (!productIds || !Array.isArray(productIds) || productIds.length === 0) {
+            return res.status(400).json({
                 success: false,
-                message: error.message
+                message: 'Product IDs array is required'
             });
         }
-    },
 
-    // Search products for comparison
-    searchProductsForComparison: async (req, res) => {
-        try {
-            const { search, category, minPrice, maxPrice, sortBy = 'price', sortOrder = 'asc' } = req.query;
-
-            let query = {};
-
-            // Text search
-            if (search) {
-                query.$or = [
-                    { name: { $regex: search, $options: 'i' } },
-                    { brand: { $regex: search, $options: 'i' } },
-                    { description: { $regex: search, $options: 'i' } }
-                ];
-            }
-
-            // Category filter
-            if (category) {
-                query.category = category;
-            }
-
-            // Price range filter
-            if (minPrice || maxPrice) {
-                query.price = {};
-                if (minPrice) query.price.$gte = Number(minPrice);
-                if (maxPrice) query.price.$lte = Number(maxPrice);
-            }
-
-            const sortOptions = {};
-            sortOptions[sortBy] = sortOrder === 'desc' ? -1 : 1;
-
-            const products = await Product.find(query)
-                .sort(sortOptions)
-                .limit(50);
-
-            res.json({
-                success: true,
-                data: products,
-                total: products.length
-            });
-        } catch (error) {
-            res.status(500).json({
+        if (productIds.length > 5) {
+            return res.status(400).json({
                 success: false,
-                message: error.message
+                message: 'You can compare up to 5 products at a time'
             });
         }
-    },
 
-    // Get price history
-    getPriceHistory: async (req, res) => {
-        try {
-            const { productId } = req.params;
+        const products = await Product.find({
+            $or: [
+                { _id: { $in: productIds } },
+                { product_id: { $in: productIds } }
+            ]
+        });
 
-            const priceHistory = await PriceHistory.find({ productId })
-                .sort({ date: -1 })
-                .limit(30); // Last 30 days
-
-            res.json({
-                success: true,
-                data: priceHistory
-            });
-        } catch (error) {
-            res.status(500).json({
+        if (products.length === 0) {
+            return res.status(404).json({
                 success: false,
-                message: error.message
+                message: 'No products found for comparison'
             });
         }
+
+        const comparisonData = products.map(product => ({
+            id: product._id || product.product_id,
+            product_id: product.product_id,
+            name: product.title,
+            brand: product.brand,
+            category: product.category,
+            price: product.price,
+            originalPrice: product.originalPrice,
+            discount: product.discount,
+            image: product.image,
+            rating: product.rating,
+            description: product.description,
+            productType: product.product_type,
+            fitType: product.fit_type,
+            materialType: product.material_type,
+            primaryColor: product.primary_color,
+            sizeVariant: product.size_variant,
+            styleType: product.style_type,
+            inStock: product.inStock,
+            stockQuantity: product.stockQuantity
+        }));
+
+        if (req.user) {
+            await Comparison.create({
+                userId: req.user.id,
+                productIds: productIds,
+                comparisonData: comparisonData,
+                comparedAt: new Date()
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            data: comparisonData,
+            count: comparisonData.length
+        });
+
+    } catch (error) {
+        console.error('Error comparing products:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to compare products',
+            error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+        });
     }
 };
 
-module.exports = priceComparisonController;
+export const getComparisonHistory = async (req, res) => {
+    try {
+        const comparisons = await Comparison.find({ userId: req.user.id })
+            .sort({ comparedAt: -1 })
+            .limit(10)
+            .populate('productIds');
+
+        res.status(200).json({
+            success: true,
+            data: comparisons
+        });
+    } catch (error) {
+        console.error('Error fetching comparison history:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch comparison history'
+        });
+    }
+};
+
+export const saveComparison = async (req, res) => {
+    try {
+        const { products: productIds, name } = req.body;
+
+        const savedComparison = await Comparison.create({
+            userId: req.user.id,
+            productIds: productIds,
+            name: name || `Comparison ${new Date().toLocaleDateString()}`,
+            savedAt: new Date(),
+            isSaved: true
+        });
+
+        res.status(201).json({
+            success: true,
+            data: savedComparison,
+            message: 'Comparison saved successfully'
+        });
+    } catch (error) {
+        console.error('Error saving comparison:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to save comparison'
+        });
+    }
+};

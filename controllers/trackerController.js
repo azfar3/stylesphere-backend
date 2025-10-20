@@ -12,7 +12,7 @@ const __dirname = path.dirname(__filename);
 const executePricePredictionService = (productData, targetDays = 30) => {
   return new Promise((resolve, reject) => {
     const pythonScript = path.join(__dirname, '../utils/price_prediction_service.py');
-    
+
     // Check if Python script exists
     if (!fs.existsSync(pythonScript)) {
       return reject(new Error('Price prediction service not found'));
@@ -73,9 +73,9 @@ const executePricePredictionService = (productData, targetDays = 30) => {
 export const getTrackedProducts = async (req, res, next) => {
   try {
     const userId = req.user.id;
-    
+
     const predictions = await PricePrediction.getUserPredictions(userId, 20);
-    
+
     res.json({
       success: true,
       data: {
@@ -93,9 +93,9 @@ export const getTrackedProducts = async (req, res, next) => {
 export const getActivePredictions = async (req, res, next) => {
   try {
     const userId = req.user.id;
-    
+
     const activePredictions = await PricePrediction.getActivePredictions(userId);
-    
+
     res.json({
       success: true,
       data: {
