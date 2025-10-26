@@ -105,7 +105,7 @@ app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/wishlist', wishlistRoutes);
 app.use('/api/price-comparison', priceComparisonRoutes);
-app.use('/api/tracker', trackerRoutes);
+app.use('/api/price-tracker', trackerRoutes);
 app.use('/api/advisor', advisorRoutes);
 
 // Serve the images folder publicly
