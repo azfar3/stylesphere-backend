@@ -116,21 +116,12 @@ class HolidayPreprocessor:
         return days_until
 
     def create_product_features(self, df):
-        if "original_price_clean" in df.columns and "price_clean" in df.columns:
-            df["discount_percentage"] = (
-                (df["original_price_clean"] - df["price_clean"])
-                / df["original_price_clean"].replace(0, np.nan)
-            ).fillna(0).clip(0, 1) * 100
-            df["price_ratio"] = (
-                df["price_clean"] / df["original_price_clean"].replace(0, np.nan)
-            ).fillna(1)
-            df["savings_amount"] = df["original_price_clean"] - df["price_clean"]
-        else:
-            df["discount_percentage"] = 0
-            df["price_ratio"] = 1
-            df["savings_amount"] = 0
-
-        df["is_high_discount"] = (df["discount_percentage"] > 30).astype(int)
+        if "original_price_clean" in df.columns:
+            df["original_price_category"] = pd.cut(
+                df["original_price_clean"],
+                bins=[0, 1000, 3000, 5000, 10000, float("inf")],
+                labels=["budget", "affordable", "mid_range", "premium", "luxury"],
+            )
 
         if "category" in df.columns and "brand" in df.columns:
             df["category_brand"] = df["category"] + "_" + df["brand"]
@@ -158,6 +149,7 @@ class HolidayPreprocessor:
             "size_variant",
             "style_type",
             "season",
+            "original_price_category",
         ]
 
         for col in categorical_columns:
@@ -168,7 +160,7 @@ class HolidayPreprocessor:
 
         return df
 
-    def prepare_features(self, df, target_column="discount_percentage"):
+    def prepare_features(self, df, target_type="sale_price"):
         print("Starting data preprocessing...")
         print(f"Initial data shape: {df.shape}")
 
@@ -182,16 +174,12 @@ class HolidayPreprocessor:
             "day_of_week",
             "week_of_year",
             "is_weekend",
-            "season_encoded",
             "is_eid_ul_fitr",
             "is_eid_ul_azha",
             "is_independence_day",
             "is_public_holiday",
             "days_until_eid",
             "days_until_independence",
-            "price_ratio",
-            "is_high_discount",
-            "savings_amount",
             "title_length",
             "has_image",
         ]
@@ -205,6 +193,8 @@ class HolidayPreprocessor:
             "fit_type",
             "size_variant",
             "style_type",
+            "season",
+            "original_price_category",
         ]
 
         for col in categorical_base:
@@ -212,15 +202,21 @@ class HolidayPreprocessor:
             if encoded_col in df.columns:
                 feature_columns.append(encoded_col)
 
+        if "original_price_clean" in df.columns:
+            feature_columns.append("original_price_clean")
+
         available_features = [col for col in feature_columns if col in df.columns]
 
+        if target_type == "sale_price":
+            y = df["price_clean"]
+        else:
+            y = df["discount_clean"]
+
         print(f"Using {len(available_features)} features for modeling")
-        print(f"Target variable: {target_column}")
+        print(f"Target variable: {target_type}")
         print(f"Final feature set: {available_features}")
 
-        return df[available_features], df[target_column]
+        return df[available_features], y
 
     def split_data(self, X, y, test_size=0.2, random_state=42):
         return train_test_split(X, y, test_size=test_size, random_state=random_state)
-
-

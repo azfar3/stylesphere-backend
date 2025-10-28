@@ -132,11 +132,13 @@ class PricePredictor:
         feature_dict["days_until_eid"] = days_until
         feature_dict["days_until_independence"] = days_until
 
-        feature_dict["price_ratio"] = product_features.get("price_ratio", 0.8)
-        feature_dict["is_high_discount"] = product_features.get("is_high_discount", 0)
-        feature_dict["savings_amount"] = product_features.get("savings_amount", 0)
         feature_dict["title_length"] = product_features.get("title_length", 0)
         feature_dict["has_image"] = product_features.get("has_image", 1)
+
+        if "original_price_clean" in feature_columns:
+            feature_dict["original_price_clean"] = product_features.get(
+                "original_price_clean", 0
+            )
 
         for col in [
             "brand",
@@ -148,6 +150,7 @@ class PricePredictor:
             "size_variant",
             "style_type",
             "season",
+            "original_price_category",
         ]:
             encoded_col = f"{col}_encoded"
             if encoded_col in feature_columns:
@@ -156,19 +159,23 @@ class PricePredictor:
         feature_vector = [feature_dict.get(col, 0) for col in feature_columns]
         return feature_vector
 
-    def combine_predictions(self, ml_discount, gemini_insights):
+    def combine_predictions(self, ml_price, gemini_insights, original_price):
         if not gemini_insights:
-            return max(0, min(ml_discount, 80))
-        gemini_avg = (
+            return ml_price
+
+        gemini_avg_discount = (
             gemini_insights["min_discount"] + gemini_insights["max_discount"]
         ) / 2
+        gemini_price = original_price * (1 - gemini_avg_discount / 100)
+
         if gemini_insights["confidence"] == "high":
-            final_discount = 0.3 * ml_discount + 0.7 * gemini_avg
+            final_price = 0.3 * ml_price + 0.7 * gemini_price
         elif gemini_insights["confidence"] == "medium":
-            final_discount = 0.6 * ml_discount + 0.4 * gemini_avg
+            final_price = 0.6 * ml_price + 0.4 * gemini_price
         else:
-            final_discount = 0.8 * ml_discount + 0.2 * gemini_avg
-        return max(0, min(final_discount, 80))
+            final_price = 0.8 * ml_price + 0.2 * gemini_price
+
+        return max(0, min(final_price, original_price))
 
     def predict_for_occasions(
         self, product_features, occasions, feature_columns, gemini_analyzer=None
@@ -177,12 +184,14 @@ class PricePredictor:
             raise ValueError("No model trained yet. Call train_models first.")
 
         future_predictions = {}
+        original_price = product_features.get("original_price_clean", 0)
+
         for occasion_name, occasion_date in occasions.items():
             try:
                 future_feature_vector = self.create_future_feature_vector(
                     product_features, occasion_date, occasion_name, feature_columns
                 )
-                ml_discount = self.best_model.predict([future_feature_vector])[0]
+                ml_price = self.best_model.predict([future_feature_vector])[0]
 
                 gemini_insights = None
                 if gemini_analyzer:
@@ -193,16 +202,18 @@ class PricePredictor:
                         occasion_name,
                     )
 
-                final_discount = self.combine_predictions(ml_discount, gemini_insights)
-                current_price = product_features.get("price_clean", 0)
-                predicted_price = current_price * (1 - final_discount / 100)
+                final_price = self.combine_predictions(
+                    ml_price, gemini_insights, original_price
+                )
+                final_discount = ((original_price - final_price) / original_price) * 100
 
                 future_predictions[occasion_name] = {
-                    "predicted_price": round(predicted_price, 2),
+                    "predicted_price": round(final_price, 2),
                     "predicted_discount": round(final_discount, 1),
-                    "ml_discount": round(ml_discount, 1),
+                    "ml_price": round(ml_price, 2),
                     "gemini_insights": gemini_insights,
                     "occasion_date": occasion_date,
+                    "original_price": original_price,
                 }
             except Exception as e:
                 print(f"Error predicting for {occasion_name}: {e}")
@@ -327,7 +338,7 @@ def main(data_path):
     df = load_and_preprocess_data(data_path)
     print("Preprocessing data...")
     preprocessor = preprocessor_class()
-    X, y = preprocessor.prepare_features(df)
+    X, y = preprocessor.prepare_features(df, target_type="sale_price")
     X_train, X_test, y_train, y_test = preprocessor.split_data(X, y)
 
     print("Initializing and training models...")
@@ -346,12 +357,9 @@ def main(data_path):
     sample_product = {
         "brand": "Outfitters",
         "category": "men",
-        "price_clean": 2490,
         "original_price_clean": 2990,
+        "price_clean": 2490,
         "title": "Slogan Print T-Shirt",
-        "price_ratio": 0.83,
-        "is_high_discount": 1,
-        "savings_amount": 500,
         "title_length": 18,
         "has_image": 1,
     }
@@ -381,9 +389,11 @@ def main(data_path):
     print("\n" + "=" * 60)
     print("OCCASION PRICE PREDICTIONS")
     print("=" * 60)
+    original_price = sample_product["original_price_clean"]
     current_price = sample_product["price_clean"]
+    print(f"Original Price: {original_price} PKR")
     print(f"Current Price: {current_price} PKR")
-    print("\nPredicted Occasion Prices:")
+    print("\nPredicted Occasion Prices (from Original Price):")
     print("-" * 50)
 
     for occasion, prediction in occasion_predictions.items():

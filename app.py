@@ -5,12 +5,16 @@ import joblib
 from datetime import datetime
 import logging
 from utils.gemini_analyzer import GeminiOccasionAnalyzer
+from utils.styling_advisor import StyleAdvisorService
+import os
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 CORS(app)
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 
 class PredictionService:
@@ -26,34 +30,79 @@ class PredictionService:
             if hasattr(self.model, "feature_names_in_"):
                 print("Model was trained with features:", self.model.feature_names_in_)
                 print("Number of features expected:", len(self.model.feature_names_in_))
+                self.feature_columns = list(self.model.feature_names_in_)
             else:
                 print("Model doesn't have feature names information")
+                self.feature_columns = [
+                    "month",
+                    "quarter",
+                    "day_of_week",
+                    "week_of_year",
+                    "is_weekend",
+                    "is_eid_ul_fitr",
+                    "is_eid_ul_azha",
+                    "is_independence_day",
+                    "is_public_holiday",
+                    "days_until_eid",
+                    "days_until_independence",
+                    "title_length",
+                    "has_image",
+                    "brand_encoded",
+                    "category_encoded",
+                    "product_type_encoded",
+                    "primary_color_encoded",
+                    "material_type_encoded",
+                    "fit_type_encoded",
+                    "size_variant_encoded",
+                    "style_type_encoded",
+                    "season_encoded",
+                    "original_price_category_encoded",
+                    "original_price_clean",
+                ]
 
-            self.feature_columns = [
-                "month",
-                "quarter",
-                "day_of_week",
-                "week_of_year",
-                "is_weekend",
-                "season_encoded",
-                "is_eid_ul_fitr",
-                "is_eid_ul_azha",
-                "is_independence_day",
-                "is_public_holiday",
-                "days_until_eid",
-                "days_until_independence",
-                "price_ratio",
-                "is_high_discount",
-                "savings_amount",
-                "title_length",
-                "has_image",
-                "brand_encoded",
-                "category_encoded",
-            ]
             print("Current feature columns:", len(self.feature_columns))
+            print("Feature columns:", self.feature_columns)
         except Exception as e:
             print(f"Error loading model: {e}")
             self.model = None
+
+    def get_upcoming_occasions(self, count=3):
+        current_date = pd.Timestamp.now()
+
+        all_occasions = {
+            "eid_ul_fitr": ["2025-03-31", "2026-03-21", "2027-03-11"],
+            "eid_ul_azha": ["2025-06-06", "2026-05-27", "2027-05-16"],
+            "independence_day": ["2025-08-14", "2026-08-14", "2027-08-14"],
+            "christmas": ["2025-12-25", "2026-12-25", "2027-12-25"],
+            "new_year": ["2026-01-01", "2027-01-01", "2028-01-01"],
+            "pakistan_day": ["2025-03-23", "2026-03-23", "2027-03-23"],
+            "labour_day": ["2025-05-01", "2026-05-01", "2027-05-01"],
+        }
+
+        upcoming = []
+        for occasion_name, dates in all_occasions.items():
+            for date_str in dates:
+                occasion_date = pd.to_datetime(date_str)
+                if occasion_date > current_date:
+                    days_until = (occasion_date - current_date).days
+                    upcoming.append(
+                        {
+                            "name": occasion_name,
+                            "date": date_str,
+                            "days_until": days_until,
+                            "occasion_date": occasion_date,
+                        }
+                    )
+
+        upcoming.sort(key=lambda x: x["occasion_date"])
+        next_occasions = upcoming[:count]
+
+        occasions_dict = {item["name"]: item["date"] for item in next_occasions}
+
+        logger.info(
+            f"Next {count} upcoming occasions: {[item['name'] for item in next_occasions]}"
+        )
+        return occasions_dict
 
     def get_brand_encoding(self, brand):
         brand_map = {
@@ -82,15 +131,11 @@ class PredictionService:
         occasion_dt = pd.to_datetime(occasion_date)
         current_dt = pd.Timestamp.now()
 
-        brand_encoded = self.get_brand_encoding(product_data.get("brand", "unknown"))
-        category_encoded = self.get_category_encoding(
-            product_data.get("category", "unknown")
-        )
-
         original_price = product_data.get("original_price_clean") or product_data.get(
             "price_clean", 1
         )
-        price_ratio = product_data.get("price_clean", 1) / original_price
+
+        days_until_occasion = (occasion_dt - current_dt).days
 
         feature_dict = {
             "month": occasion_dt.month,
@@ -98,7 +143,6 @@ class PredictionService:
             "day_of_week": occasion_dt.dayofweek,
             "week_of_year": occasion_dt.isocalendar().week,
             "is_weekend": 1 if occasion_dt.dayofweek >= 5 else 0,
-            "season_encoded": self.get_season_encoded(occasion_dt.month),
             "is_eid_ul_fitr": 1 if "eid_ul_fitr" in occasion_name.lower() else 0,
             "is_eid_ul_azha": 1 if "eid_ul_azha" in occasion_name.lower() else 0,
             "is_independence_day": 1 if "independence" in occasion_name.lower() else 0,
@@ -106,21 +150,30 @@ class PredictionService:
                 1
                 if any(
                     x in occasion_name.lower()
-                    for x in ["eid", "independence", "pakistan"]
+                    for x in [
+                        "eid",
+                        "independence",
+                        "pakistan",
+                        "christmas",
+                        "new_year",
+                    ]
                 )
                 else 0
             ),
-            "days_until_eid": self.days_until_next_holiday(current_dt, "2025-03-31"),
-            "days_until_independence": self.days_until_next_holiday(
-                current_dt, "2025-08-14"
+            "days_until_eid": self.get_days_until_specific_holiday(
+                current_dt, ["eid_ul_fitr", "eid_ul_azha"]
             ),
-            "price_ratio": price_ratio,
-            "is_high_discount": product_data.get("is_high_discount", 0),
-            "savings_amount": product_data.get("savings_amount", 0),
+            "days_until_independence": self.get_days_until_specific_holiday(
+                current_dt, ["independence_day", "pakistan_day"]
+            ),
             "title_length": product_data.get("title_length", 0),
             "has_image": product_data.get("has_image", 1),
-            "brand_encoded": brand_encoded,
-            "category_encoded": category_encoded,
+            "brand_encoded": self.get_brand_encoding(
+                product_data.get("brand", "unknown")
+            ),
+            "category_encoded": self.get_category_encoding(
+                product_data.get("category", "unknown")
+            ),
             "product_type_encoded": self.get_product_type_encoding(
                 product_data.get("product_type", "unknown")
             ),
@@ -139,40 +192,38 @@ class PredictionService:
             "style_type_encoded": self.get_style_encoding(
                 product_data.get("style_type", "unknown")
             ),
+            "season_encoded": self.get_season_encoded(occasion_dt.month),
+            "original_price_category_encoded": self.get_price_category_encoding(
+                original_price
+            ),
+            "original_price_clean": original_price,
         }
 
-        expected_features = [
-            "month",
-            "quarter",
-            "day_of_week",
-            "week_of_year",
-            "is_weekend",
-            "season_encoded",
-            "is_eid_ul_fitr",
-            "is_eid_ul_azha",
-            "is_independence_day",
-            "is_public_holiday",
-            "days_until_eid",
-            "days_until_independence",
-            "price_ratio",
-            "is_high_discount",
-            "savings_amount",
-            "title_length",
-            "has_image",
-            "brand_encoded",
-            "category_encoded",
-            "product_type_encoded",
-            "primary_color_encoded",
-            "material_type_encoded",
-            "fit_type_encoded",
-            "size_variant_encoded",
-            "style_type_encoded",
-        ]
+        feature_vector = [feature_dict.get(col, 0) for col in self.feature_columns]
 
-        feature_vector = [feature_dict.get(col, 0) for col in expected_features]
-
-        print(f"Prepared {len(feature_vector)} features for {occasion_name}")
+        print(
+            f"Prepared {len(feature_vector)} features for {occasion_name} on {occasion_date}"
+        )
         return feature_vector
+
+    def get_days_until_specific_holiday(self, current_date, holiday_types):
+        all_occasions = {
+            "eid_ul_fitr": ["2025-03-31", "2026-03-21", "2027-03-11"],
+            "eid_ul_azha": ["2025-06-06", "2026-05-27", "2027-05-16"],
+            "independence_day": ["2025-08-14", "2026-08-14", "2027-08-14"],
+            "pakistan_day": ["2025-03-23", "2026-03-23", "2027-03-23"],
+        }
+
+        min_days = 365
+        for holiday_type in holiday_types:
+            if holiday_type in all_occasions:
+                for date_str in all_occasions[holiday_type]:
+                    holiday_date = pd.to_datetime(date_str)
+                    if holiday_date > current_date:
+                        days_until = (holiday_date - current_date).days
+                        min_days = min(min_days, days_until)
+
+        return min_days
 
     def get_product_type_encoding(self, product_type):
         type_map = {
@@ -250,49 +301,56 @@ class PredictionService:
         else:
             return 3
 
-    def days_until_next_holiday(self, current_date, holiday_date):
-        holiday_dt = pd.to_datetime(holiday_date)
-        if holiday_dt > current_date:
-            return (holiday_dt - current_date).days
-        return 365
+    def get_price_category_encoding(self, price):
+        if price <= 1000:
+            return 0
+        elif price <= 3000:
+            return 1
+        elif price <= 5000:
+            return 2
+        elif price <= 10000:
+            return 3
+        else:
+            return 4
 
-    def combine_predictions(self, ml_discount, gemini_insights):
+    def combine_predictions(self, ml_price, gemini_insights, original_price):
         if not gemini_insights:
-            return max(5, min(ml_discount, 70))
+            return ml_price
 
-        gemini_avg = (
+        gemini_avg_discount = (
             gemini_insights["min_discount"] + gemini_insights["max_discount"]
         ) / 2
+        gemini_price = original_price * (1 - gemini_avg_discount / 100)
 
         if gemini_insights["confidence"] == "high":
-            final_discount = 0.3 * ml_discount + 0.7 * gemini_avg
+            final_price = 0.3 * ml_price + 0.7 * gemini_price
         elif gemini_insights["confidence"] == "medium":
-            final_discount = 0.6 * ml_discount + 0.4 * gemini_avg
+            final_price = 0.6 * ml_price + 0.4 * gemini_price
         else:
-            final_discount = 0.8 * ml_discount + 0.2 * gemini_avg
+            final_price = 0.8 * ml_price + 0.2 * gemini_price
 
-        return max(5, min(final_discount, 70))
+        return max(0, min(final_price, original_price))
 
     def predict_for_product(self, product_data):
         if self.model is None:
             return {"error": "Model not loaded"}
 
-        occasions = {
-            "eid_ul_fitr": "2026-03-21",
-            "independence_day": "2026-08-14",
-            "christmas": "2026-12-25",
-            "eid_ul_azha": "2026-05-27",
-        }
+        occasions = self.get_upcoming_occasions(count=3)
+
+        if not occasions:
+            return {"error": "No upcoming occasions found"}
 
         predictions = {}
-        current_price = product_data.get("price_clean", 0)
+        original_price = product_data.get("original_price_clean") or product_data.get(
+            "price_clean", 0
+        )
 
         for occasion_name, occasion_date in occasions.items():
             try:
                 features = self.prepare_product_features(
                     product_data, occasion_date, occasion_name
                 )
-                ml_discount = self.model.predict([features])[0]
+                ml_price = self.model.predict([features])[0]
 
                 gemini_insights = self.gemini_analyzer.get_occasion_insights(
                     product_data.get("title", ""),
@@ -301,21 +359,29 @@ class PredictionService:
                     occasion_name,
                 )
 
-                final_discount = self.combine_predictions(ml_discount, gemini_insights)
-                predicted_price = current_price * (1 - final_discount / 100)
+                final_price = self.combine_predictions(
+                    ml_price, gemini_insights, original_price
+                )
+                final_discount = ((original_price - final_price) / original_price) * 100
 
                 predictions[occasion_name] = {
-                    "predicted_price": round(predicted_price, 2),
+                    "predicted_price": round(final_price, 2),
                     "predicted_discount": round(final_discount, 2),
-                    "savings": round(current_price - predicted_price, 2),
+                    "savings": round(original_price - final_price, 2),
                     "occasion_date": occasion_date,
+                    "days_until": (
+                        pd.to_datetime(occasion_date) - pd.Timestamp.now()
+                    ).days,
+                    "original_price": original_price,
                     "gemini_confidence": gemini_insights.get("confidence", "medium"),
                     "reasoning": gemini_insights.get(
                         "reasoning", "AI-powered prediction"
                     ),
                 }
 
-                logger.info(f"{occasion_name}: {final_discount}% discount")
+                logger.info(
+                    f"{occasion_name} ({occasion_date}): {final_price} PKR ({final_discount:.1f}% discount)"
+                )
 
             except Exception as e:
                 logger.error(f"Prediction failed for {occasion_name}: {e}")
@@ -325,6 +391,7 @@ class PredictionService:
 
 
 prediction_service = PredictionService()
+style_advisor = StyleAdvisorService(GEMINI_API_KEY)
 
 
 @app.route("/api/predict", methods=["POST"])
@@ -339,6 +406,8 @@ def predict_prices():
         return jsonify(
             {
                 "success": True,
+                "original_price": product_data.get("original_price_clean")
+                or product_data.get("price_clean", 0),
                 "current_price": product_data.get("price_clean", 0),
                 "predictions": predictions,
                 "timestamp": datetime.now().isoformat(),
@@ -358,12 +427,163 @@ def predict_prices():
         )
 
 
+@app.route("/api/occasions", methods=["GET"])
+def get_upcoming_occasions():
+    try:
+        occasions = prediction_service.get_upcoming_occasions(count=3)
+        return jsonify(
+            {
+                "success": True,
+                "occasions": occasions,
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
+    except Exception as e:
+        logger.error(f"Occasions endpoint error: {e}")
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "error": str(e),
+                    "timestamp": datetime.now().isoformat(),
+                }
+            ),
+            500,
+        )
+
+
+@app.route("/api/style-recommendation", methods=["POST"])
+def get_style_recommendation():
+    try:
+        user_profile = request.json
+        logger.info(
+            f"Style recommendation request for: {user_profile.get('gender', 'Unknown')} user for {user_profile.get('event', 'Unknown event')}"
+        )
+
+        result = style_advisor.get_style_recommendation(user_profile)
+
+        if "error" in result:
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "error": result["error"],
+                        "details": result.get("details"),
+                        "timestamp": datetime.now().isoformat(),
+                    }
+                ),
+                400,
+            )
+
+        return jsonify(
+            {"success": True, **result, "timestamp": datetime.now().isoformat()}
+        )
+
+    except Exception as e:
+        logger.error(f"Style recommendation endpoint error: {e}")
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "error": str(e),
+                    "timestamp": datetime.now().isoformat(),
+                }
+            ),
+            500,
+        )
+
+
+@app.route("/api/analyze-image", methods=["POST"])
+def analyze_image():
+    try:
+        if "file" not in request.files:
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "error": "No file uploaded",
+                        "timestamp": datetime.now().isoformat(),
+                    }
+                ),
+                400,
+            )
+
+        file = request.files["file"]
+
+        if file.filename == "":
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "error": "No file selected",
+                        "timestamp": datetime.now().isoformat(),
+                    }
+                ),
+                400,
+            )
+
+        allowed_extensions = {"png", "jpg", "jpeg", "gif"}
+        if (
+            "." in file.filename
+            and file.filename.rsplit(".", 1)[1].lower() not in allowed_extensions
+        ):
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "error": "Invalid file type. Please upload an image.",
+                        "timestamp": datetime.now().isoformat(),
+                    }
+                ),
+                400,
+            )
+
+        image_data = file.read()
+        result = style_advisor.analyze_skin_tone(image_data)
+
+        if not result["success"]:
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "error": result["error"],
+                        "timestamp": datetime.now().isoformat(),
+                    }
+                ),
+                400,
+            )
+
+        return jsonify(
+            {
+                "success": True,
+                "data": result["data"],
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"Image analysis endpoint error: {e}")
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "error": str(e),
+                    "timestamp": datetime.now().isoformat(),
+                }
+            ),
+            500,
+        )
+
+
 @app.route("/api/health", methods=["GET"])
 def health_check():
     return jsonify(
         {
             "status": "healthy",
-            "model_loaded": prediction_service.model is not None,
+            "services": {
+                "price_prediction": prediction_service.model is not None,
+                "style_advisor": style_advisor.gemini_configured,
+            },
             "timestamp": datetime.now().isoformat(),
         }
     )
@@ -373,16 +593,19 @@ def health_check():
 def home():
     return jsonify(
         {
-            "message": "Price Prediction API",
-            "version": "1.0.0",
+            "message": "Fashion AI API",
+            "version": "2.0.0",
             "endpoints": {
                 "health": "/api/health (GET)",
+                "occasions": "/api/occasions (GET)",
                 "predict": "/api/predict (POST)",
+                "style_recommendation": "/api/style-recommendation (POST)",
+                "analyze_image": "/api/analyze-image (POST)",
             },
         }
     )
 
 
 if __name__ == "__main__":
-    logger.info("Starting Flask server...")
+    logger.info("Starting Server...")
     app.run(debug=True, port=8000, host="0.0.0.0")
