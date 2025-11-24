@@ -351,7 +351,7 @@ def main(data_path):
     predictor.save_model("price_predictor.pkl")
 
     gemini_analyzer = GeminiOccasionAnalyzer(
-        api_key="AIzaSyD9dkoJRN78uiRWhC9gcCo0EuM0jW7WtX4"
+        api_key="api_key"
     )
 
     sample_product = {
