@@ -15,6 +15,7 @@ app = Flask(__name__)
 CORS(app)
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
 
 
 class PredictionService:
@@ -391,7 +392,7 @@ class PredictionService:
 
 
 prediction_service = PredictionService()
-style_advisor = StyleAdvisorService(GEMINI_API_KEY)
+style_advisor = StyleAdvisorService(GEMINI_API_KEY, HUGGINGFACE_API_KEY)
 
 
 @app.route("/api/predict", methods=["POST"])

@@ -2,14 +2,20 @@ import google.generativeai as genai
 import json
 import logging
 import random
-from typing import Dict, Any
+import requests
+import base64
+from typing import Dict, Any, List
+import io
+from PIL import Image
 
 logger = logging.getLogger(__name__)
 
 
 class StyleAdvisorService:
-    def __init__(self, gemini_api_key: str):
+    def __init__(self, gemini_api_key: str, huggingface_api_key: str = None):
         self.gemini_configured = self.configure_gemini(gemini_api_key)
+        self.huggingface_api_key = huggingface_api_key
+        self.huggingface_configured = huggingface_api_key is not None
 
     def configure_gemini(self, api_key: str) -> bool:
         try:
@@ -65,8 +71,107 @@ class StyleAdvisorService:
 
         return {"valid": len(errors) == 0, "errors": errors}
 
-    def build_style_prompt(self, user_data: Dict[str, Any]) -> str:
+    def build_outfit_prompt_for_image(
+        self, recommendation: Dict[str, Any], user_data: Dict[str, Any]
+    ) -> str:
+        """Build a detailed prompt for Stable Diffusion image generation"""
 
+        gender = user_data.get("gender", "person")
+        age = user_data.get("age", "")
+        event = user_data.get("event", "occasion")
+        skin_tone = user_data.get("skin_tone", "")
+
+        # Build description components
+        colors = ", ".join(recommendation.get("colors", []))
+        fabrics = ", ".join(recommendation.get("fabric", []))
+        accessories = ", ".join(recommendation.get("accessories", []))
+
+        prompt_parts = [
+            f"Full-body fashion photography of a {age}-year-old {gender},",
+            f"wearing {recommendation.get('kurta_shirt', 'outfit')}",
+            f"with {recommendation.get('pants_shalwar', 'bottom wear')}",
+            f"and {recommendation.get('footwear', 'footwear')}",
+        ]
+
+        if colors:
+            prompt_parts.append(f"in {colors} colors")
+        if fabrics:
+            prompt_parts.append(f"made of {fabrics} fabric")
+        if accessories:
+            prompt_parts.append(f"accessorized with {accessories}")
+
+        prompt_parts.extend(
+            [
+                f"for a {event} event,",
+                "Pakistani fashion style,",
+                "professional studio lighting,",
+                "high quality, detailed,",
+                "full body shot, clean background,",
+                "fashion photography, vibrant colors",
+                "trending on Pinterest, 8K resolution",
+            ]
+        )
+
+        if skin_tone:
+            prompt_parts.append(f"{skin_tone} skin tone")
+
+        return " ".join(prompt_parts)
+
+    def generate_outfit_image(
+        self, recommendation: Dict[str, Any], user_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        if not self.huggingface_configured:
+            return {"success": False, "error": "Hugging Face API not configured"}
+
+        try:
+            # Build the prompt for image generation
+            prompt = self.build_outfit_prompt_for_image(recommendation, user_data)
+
+            # Initialize the client with proper error handling
+            try:
+                from huggingface_hub import InferenceClient
+            except ImportError:
+                return {
+                    "success": False,
+                    "error": "huggingface_hub package not installed. Run: pip install huggingface_hub",
+                }
+
+            try:
+                client = InferenceClient(token=self.huggingface_api_key)
+
+                # Generate image using text_to_image method
+                image = client.text_to_image(
+                    prompt,
+                    model="stabilityai/stable-diffusion-xl-base-1.0",
+                )
+
+                # Convert PIL Image to bytes and then to base64
+                img_byte_arr = io.BytesIO()
+                image.save(img_byte_arr, format="JPEG", quality=95)
+                image_base64 = base64.b64encode(img_byte_arr.getvalue()).decode("utf-8")
+
+                return {
+                    "success": True,
+                    "image_base64": image_base64,
+                    "image_format": "jpeg",
+                    "dimensions": {"width": image.width, "height": image.height},
+                    "prompt_used": prompt,
+                    "model_used": "stabilityai/stable-diffusion-xl-base-1.0",
+                }
+
+            except Exception as client_error:
+                logger.error(f"HuggingFace client error: {client_error}")
+                return {
+                    "success": False,
+                    "error": f"HuggingFace client error: {str(client_error)}",
+                }
+
+        except Exception as e:
+            logger.error(f"Outfit image generation error: {e}")
+            return {"success": False, "error": f"Image generation failed: {str(e)}"}
+
+    def build_style_prompt(self, user_data: Dict[str, Any]) -> str:
+        # ... (your existing build_style_prompt method remains the same)
         prompt = f"""
         Act as a personal fashion stylist specialized in Pakistani fashion. Your goal is to suggest a complete, culturally appropriate outfit for a Pakistani user by exclusively using the styles, aesthetics, and typical product lines from the following brands: Outfitters, Cougar, Engine, One, and GulAhmed.
 
@@ -106,13 +211,9 @@ class StyleAdvisorService:
             "colors": ["Primary Color 1", "Secondary Color 2", "Accent Color 3"],
             "fabric": ["Fabric Type 1", "Fabric Type 2"],
             "styling_tips": "Practical styling advice for this outfit",
-            "outfit_images": [
-                {
-                    "name": "Outfit Name",
-                    "image": "description_or_reference",
-                    "description": "Brief description"
-                }
-            ],
+            "kurta_price": 7500,
+            "pant_price": 5000,
+            "footwear_price": 4000,
             "recommended_brands": ["Brand1", "Brand2", "Brand3"]
         }
 
@@ -144,7 +245,7 @@ class StyleAdvisorService:
         - Signature styles: intricate embroidery, traditional cuts, rich fabrics
 
         IMPORTANT INSTRUCTIONS:
-        1. You MUST ONLY suggest items from these five brands: Outfitters, Cougar, Engine, One, GulAhmed
+        1. You MUST ONLY suggest items from these five brands: Outfitters, Cougar, Engine, One, and GulAhmed
         2. Specify the brand name for each clothing item in your description
         3. Consider the user's body type, skin tone, and preferences when selecting brands
         4. For traditional events (Eid, weddings), prioritize GulAhmed and premium brands
@@ -160,7 +261,9 @@ class StyleAdvisorService:
 
         return prompt
 
-    def get_style_recommendation(self, user_data: Dict[str, Any]) -> Dict[str, Any]:
+    def get_style_recommendation(
+        self, user_data: Dict[str, Any], generate_image: bool = True
+    ) -> Dict[str, Any]:
         if not self.gemini_configured:
             return {"error": "AI service not configured"}
 
@@ -192,7 +295,16 @@ class StyleAdvisorService:
 
             recommendation_data = json.loads(recommendation_text)
 
-            return {
+            # Generate outfit image if requested and Hugging Face is configured
+            generated_image = None
+            if generate_image and self.huggingface_configured:
+                image_result = self.generate_outfit_image(
+                    recommendation_data, user_data
+                )
+                if image_result["success"]:
+                    generated_image = image_result
+
+            result = {
                 "success": True,
                 "recommendation": recommendation_data,
                 "skin_tone": user_data.get("skin_tone"),
@@ -203,6 +315,11 @@ class StyleAdvisorService:
                 },
             }
 
+            if generated_image:
+                print("Generated image successfully.")
+                result["generated_image"] = generated_image
+            return result
+
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse AI response: {e}")
             return self._get_fallback_recommendation(user_data)
@@ -211,6 +328,7 @@ class StyleAdvisorService:
             return {"error": f"AI service error: {str(e)}"}
 
     def _get_fallback_recommendation(self, user_data: Dict[str, Any]) -> Dict[str, Any]:
+        # ... (your existing fallback method remains the same)
         gender = user_data.get("gender", "male")
         event = user_data.get("event", "casual")
 
